@@ -6,12 +6,12 @@ import sqlite3
 
 def scrape_branch_info():
     chrome_options = Options()
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')  
+    chrome_options.add_argument('--disable-dev-shm-usage')  
+    chrome_options.add_argument('--headless')  
 
     driver = webdriver.Chrome(options=chrome_options)
-    url = "https://www.google.com/maps/search/Scotiabank+in+Toronto/@43.637422,-79.4901441,13z/data=!3m1!4b1?entry=ttu"
+    url = "https://www.google.com/maps/search/Scotiabank+in+Toronto"
     driver.get(url)
     time.sleep(5)  
 
@@ -21,40 +21,39 @@ def scrape_branch_info():
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(5)
 
-        # Click into each branch to extract details
+        # Assuming the addresses and reviews are within elements with specific classes
         results = driver.find_elements(By.CLASS_NAME, 'section-result')
         for result in results:
-            result.click()
-            time.sleep(2)  # Allow time for branch details to load
-
-            name = driver.find_element(By.CLASS_NAME, 'section-hero-header-title-title').text
-            address = driver.find_element(By.CLASS_NAME, 'section-info-text').text
-            rating = driver.find_element(By.CLASS_NAME, 'section-star-display').text
-            reviews = [review.text for review in driver.find_elements(By.CLASS_NAME, 'section-review-text')]
-
-            branches.append((name, address, rating, ','.join(reviews)))
-            driver.back()
-            time.sleep(2)  # Wait before the next loop iteration
+            # Use try-except to catch and print any errors encountered per branch
+            try:
+                name = result.find_element(By.CLASS_NAME, 'section-result-title').text
+                address = result.find_element(By.CLASS_NAME, 'section-result-location').text
+                rating = result.find_element(By.CLASS_NAME, 'cards-rating-score').text
+                branches.append((name, address, rating))
+                print(f"Scraped: {name}, {address}, {rating}")  
+            except Exception as e:
+                print(f"Error scraping a branch: {e}")
 
     finally:
         driver.quit()
     return branches
 
-#save to sql
 def save_to_sqlite(data):
+    print(f"Data to insert: {data}")  
     conn = sqlite3.connect('scotiabank_branches.db')
     c = conn.cursor()
     c.execute('''
         CREATE TABLE IF NOT EXISTS branches (
             name TEXT,
             address TEXT,
-            rating TEXT,
-            reviews TEXT
+            rating TEXT
         )
     ''')
-    c.executemany('INSERT INTO branches (name, address, rating, reviews) VALUES (?, ?, ?, ?)', data)
+    c.executemany('INSERT INTO branches (name, address, rating) VALUES (?, ?, ?)', data)
     conn.commit()
     conn.close()
+    print("Data insertion complete.")  
 
+# Run the function and print the results
 branch_data = scrape_branch_info()
 save_to_sqlite(branch_data)
