@@ -1,37 +1,60 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.options import Options
 import time
+import sqlite3
 
-def get_place_ids_from_search(url):
-    driver = webdriver.Chrome(ChromeDriverManager().install())
+def scrape_branch_info():
+    chrome_options = Options()
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--headless')
+
+    driver = webdriver.Chrome(options=chrome_options)
+    url = "https://www.google.com/maps/search/Scotiabank+in+Toronto/@43.637422,-79.4901441,13z/data=!3m1!4b1?entry=ttu"
     driver.get(url)
-    
-    # Wait for the search results to load
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.TAG_NAME, 'body'))
-    )
-    
-    # Scroll down to ensure all results are loaded (may require adjustment based on page)
-    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-    time.sleep(5)  # Allow time for any lazy-loaded elements to appear
+    time.sleep(5)  
 
-    # Find all links in the search results, assuming each bank branch is linked individually
-    elements = driver.find_elements(By.XPATH, '//a[contains(@href, "/maps/place/Scotiabank")]')
-    place_ids = []
-    for element in elements:
-        href = element.get_attribute('href')
-        if 'placeid=' in href:
-            place_id = href.split('placeid=')[-1].split('&')[0]
-            place_ids.append(place_id)
-    
-    driver.quit()
-    return place_ids
+    branches = []
+    try:
+        # Scroll to load all elements
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(5)
 
-# URL containing the list of locations
-url = 'https://www.google.com/maps/search/scotiabank+in+toronto/@43.6573563,-79.4170186,14.28z?entry=ttu'
-place_ids = get_place_ids_from_search(url)
-print(place_ids)
+        # Click into each branch to extract details
+        results = driver.find_elements(By.CLASS_NAME, 'section-result')
+        for result in results:
+            result.click()
+            time.sleep(2)  # Allow time for branch details to load
+
+            name = driver.find_element(By.CLASS_NAME, 'section-hero-header-title-title').text
+            address = driver.find_element(By.CLASS_NAME, 'section-info-text').text
+            rating = driver.find_element(By.CLASS_NAME, 'section-star-display').text
+            reviews = [review.text for review in driver.find_elements(By.CLASS_NAME, 'section-review-text')]
+
+            branches.append((name, address, rating, ','.join(reviews)))
+            driver.back()
+            time.sleep(2)  # Wait before the next loop iteration
+
+    finally:
+        driver.quit()
+    return branches
+
+#save to sql
+def save_to_sqlite(data):
+    conn = sqlite3.connect('scotiabank_branches.db')
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS branches (
+            name TEXT,
+            address TEXT,
+            rating TEXT,
+            reviews TEXT
+        )
+    ''')
+    c.executemany('INSERT INTO branches (name, address, rating, reviews) VALUES (?, ?, ?, ?)', data)
+    conn.commit()
+    conn.close()
+
+branch_data = scrape_branch_info()
+save_to_sqlite(branch_data)
