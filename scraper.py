@@ -1,59 +1,51 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-import time
+import requests
 import sqlite3
 
-def scrape_branch_info():
-    chrome_options = Options()
-    chrome_options.add_argument('--no-sandbox')  
-    chrome_options.add_argument('--disable-dev-shm-usage')  
-    chrome_options.add_argument('--headless')  
+def fetch_and_save_business_info():
+    # Define your Yelp API key here
+    api_key = 'Your_Yelp_API_Key'
+    headers = {'Authorization': f'Bearer {api_key}'}
+    url = 'EAo83n9kjSHy7jMaUKF6RJxtKLvCeqBN3g1uSmD-XjTeIsWpI_mKkSWutO6EXt5OZ9q2uiZv6tyQzIqEs7VwroESEFAzSyz_3FkeRe2y5XXCCv8oUpESN4b9FM1CZnYx'
 
-    driver = webdriver.Chrome(options=chrome_options)
-    url = "https://www.google.com/maps/search/Scotiabank+in+Toronto"
-    driver.get(url)
-    time.sleep(5)  
+    # Set search parameters to focus on Scotiabank in Toronto
+    params = {
+        'term': 'Scotiabank',
+        'location': 'Toronto',
+        'limit': 50  # The maximum number of results per API call
+    }
 
-    branches = []
-    try:
-        # Scroll to load all elements
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(5)
+    # Make a request to the Yelp API
+    response = requests.get(url, headers=headers, params=params)
+    if response.status_code == 200:
+        businesses = response.json().get('businesses', [])
+        
+        # Connect to SQLite Database
+        conn = sqlite3.connect('scotiabank_branches.db')
+        c = conn.cursor()
+        
+        # Create table if not exists
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS branches (
+                name TEXT,
+                address TEXT,
+                rating REAL
+            )
+        ''')
 
-        # Assuming the addresses and reviews are within elements with specific classes
-        results = driver.find_elements(By.CLASS_NAME, 'section-result')
-        for result in results:
-            # Use try-except to catch and print any errors encountered per branch
-            try:
-                name = result.find_element(By.CLASS_NAME, 'section-result-title').text
-                address = result.find_element(By.CLASS_NAME, 'section-result-location').text
-                rating = result.find_element(By.CLASS_NAME, 'cards-rating-score').text
-                branches.append((name, address, rating))
-                print(f"Scraped: {name}, {address}, {rating}")  
-            except Exception as e:
-                print(f"Error scraping a branch: {e}")
+        # Insert data into the database
+        for business in businesses:
+            name = business['name']
+            address = ", ".join(business['location']['display_address'])  # Join address parts
+            rating = business['rating']
+            c.execute('INSERT INTO branches (name, address, rating) VALUES (?, ?, ?)', (name, address, rating))
 
-    finally:
-        driver.quit()
-    return branches
+        # Commit changes and close connection
+        conn.commit()
+        conn.close()
 
-def save_to_sqlite(data):
-    print(f"Data to insert: {data}")  
-    conn = sqlite3.connect('scotiabank_branches.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS branches (
-            name TEXT,
-            address TEXT,
-            rating TEXT
-        )
-    ''')
-    c.executemany('INSERT INTO branches (name, address, rating) VALUES (?, ?, ?)', data)
-    conn.commit()
-    conn.close()
-    print("Data insertion complete.")  
+        print("Data fetched and saved to database successfully.")
+    else:
+        print(f"Failed to fetch data: {response.status_code}, {response.text}")
 
-# Run the function and print the results
-branch_data = scrape_branch_info()
-save_to_sqlite(branch_data)
+# Run the function
+fetch_and_save_business_info()
